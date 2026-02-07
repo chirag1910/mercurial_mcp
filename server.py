@@ -1,5 +1,6 @@
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.prompts.prompt import Message, PromptMessage, TextContent
 import asyncio
 import os
 import helpers
@@ -227,6 +228,32 @@ async def get_task_summary_by_id(task_id: str, page: int = 1) -> dict:
         return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
     except Exception as e:
         raise ToolError(str(e))
+
+
+@mcp.prompt()
+def review_revision(revision_id: str) -> str:
+    """
+    Review the given revision/differential.
+    """
+
+    prompt = """
+    You are a senior software engineer. Your task is to review {revision_id} revision/differential.
+    Get and analyze the summary and changes of the revision/differential. Check if the changes are
+    appropriate and make sense. If not, suggest changes. In case revision/differential is
+    associated with a task/maniphest, get and analyze the summary of the task/maniphest and check
+    if the changes are relevant/aligned with the task.
+
+    Furthermore, review the changes against following parameters:
+    - Syntax (as per Code Formatting)
+    - Naming (of variables, methods, file names)
+    - Comments (as per Documentation)
+    - Code reuse (including refactoring opportunities)
+    - Performance (of code and queries)
+    - Security (is proper authorization added)
+    - Migrations (are Online Schema Changes needed)
+    """
+
+    return PromptMessage(role="assistant", content=TextContent(type="text", text=prompt))
 
 
 if __name__ == "__main__":
