@@ -108,11 +108,3 @@ def get_paginated_result(result: str, page: int, page_length: int):
         "total_chars": len(target_page_content),
         "has_more": has_more
     }
-
-async def get_commit_desc(commit_hash: str, CWD: str):
-    command = f"hg log -r {commit_hash} --template '{{desc}}'"
-    return await run_command_async(command, CWD)
-
-async def get_commit_diff(commit_hash: str, CWD: str):
-    command = f"hg diff -r {commit_hash}"
-    return await run_command_async(command, CWD)

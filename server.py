@@ -111,8 +111,11 @@ async def get_commit_summary(commit_hash: str, page: int = 1) -> dict:
         meta information about the response/pagination.
     """
     try:
-        desc_task = asyncio.create_task(helpers.get_commit_desc(commit_hash, CWD))
-        diff_task = asyncio.create_task(helpers.get_commit_diff(commit_hash, CWD))
+        desk_task_command = f"hg log -r {commit_hash} --template '{{desc}}'"
+        diff_task_command = f"hg diff -r {commit_hash}"
+
+        desc_task = asyncio.create_task(helpers.run_command_async(desk_task_command, CWD))
+        diff_task = asyncio.create_task(helpers.run_command_async(diff_task_command, CWD))
 
         desc, diff = await asyncio.gather(desc_task, diff_task)
         result = f"""Description:\n{desc}\n\nDiff:\n{diff}"""
