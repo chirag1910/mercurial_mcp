@@ -4,25 +4,20 @@ set -e
 # Add Arcanist to PATH
 export PATH="$PATH:/app/arcanist/bin"
 
-# Export custom PROJECT_PATH if provided (for use by the app/scripts)
-# Note: The actual working directory for hg commands is set via HG_REPO_ROOT env var
-# which fits the server.py logic.
-
-echo "Starting Mercurial MCP Container..."
+# Log to stderr to keep stdout clean for MCP JSON protocol
+echo "Starting Mercurial MCP Container..." >&2
 
 # Basic validation
 if [ ! -d "/app/repo/.hg" ]; then
-    echo "WARNING: /app/repo does not appear to be a Mercurial repository. Did you mount it correctly?"
-else
-    echo "Found Mercurial repository at /app/repo."
+    echo "ERROR: /app/repo does not appear to be a Mercurial repository. Did you mount it correctly?" >&2
+    exit 1
 fi
 
 if ! command -v arc &> /dev/null; then
-    echo "WARNING: 'arc' command not found. Did you mount the Arcanist directory to /app/arcanist?"
-else
-    echo "Arcanist found: $(arc version | head -n 1)"
+    echo "ERROR: 'arc' command not found. Did you mount the Arcanist directory to /app/arcanist?" >&2
+    exit 1
 fi
 
 # Run the server
-echo "Starting MCP Server..."
+echo "Starting MCP Server..." >&2
 python server.py

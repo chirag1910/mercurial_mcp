@@ -20,6 +20,7 @@ services:
       # Internal path to the repo inside container (matches the volume mount above)
       # server.py uses this to determine where to run commands.
       - HG_REPO_ROOT=/app/repo
+      - TOKEN_LIMIT=${TOKEN_LIMIT}
       - PYTHONUNBUFFERED=1
     
     restart: unless-stopped
