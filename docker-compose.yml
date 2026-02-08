@@ -1,0 +1,25 @@
+services:
+  mercurial-mcp:
+    build: .
+    volumes:
+      # Mount system configurations (read-only)
+      - ${HGRC_PATH}:/root/.hgrc:ro
+      - ${ARCRC_PATH}:/root/.arcrc:ro
+      
+      # Mount the Target Repositories
+      # This path is where we will execute hg/arc commands
+      - ${AUCTION_PROJECT_PATH}:/app/repo
+      
+      # Mount Arcanist
+      - ${ARCANIST_PROJECT_PATH}:/app/arcanist
+      
+    env_file:
+      - .env
+
+    environment:
+      # Internal path to the repo inside container (matches the volume mount above)
+      # server.py uses this to determine where to run commands.
+      - HG_REPO_ROOT=/app/repo
+      - PYTHONUNBUFFERED=1
+    
+    restart: unless-stopped
