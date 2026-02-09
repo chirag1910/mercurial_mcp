@@ -28,8 +28,10 @@ RUN mkdir -p /app/repo /app/arcanist
 # Copy local code to container
 COPY . .
 
-# Entrypoint script
-COPY entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+# Update ENV variables
+ENV HG_REPO_ROOT="/app/repo"
+ENV PATH="/app/arcanist/bin:${PATH}"
+ENV TOKEN_LIMIT=${TOKEN_LIMIT}
+ENV PYTHONUNBUFFERED=1
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["python", "server.py"]
