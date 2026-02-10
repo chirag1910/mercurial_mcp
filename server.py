@@ -9,8 +9,6 @@ from fastmcp.prompts.prompt import Message, PromptMessage, TextContent
 mcp = FastMCP("Mercurial MCP", mask_error_details=True)
 
 HG_REPO_ROOT = os.environ.get("HG_REPO_ROOT")
-# will be used to get relative paths
-HOST_REPO_ROOT = os.environ.get("HOST_REPO_ROOT") or os.environ.get("AUCTION_PROJECT_PATH")
 TOKEN_LIMIT = int(os.environ.get("TOKEN_LIMIT", 4096))
 
 if not HG_REPO_ROOT:
@@ -69,9 +67,16 @@ async def blame_file(file_path: str, page: int = 1) -> dict:
     """
     try:
         relpath = helpers.get_relpath(file_path)
-        command = "hg annotate --template '{lines % \"{pad(node|short,12,left=true)}, {pad(p1node|short,12,left=true)}, {pad(fill(author|emailuser|lower,11)|firstline,11,left=true)}, {pad(date|age|short,13,left=true)}, {line}\"}'"
-
-        command += f" {relpath}"
+        tpl = (
+            "'{lines % \"{pad(node|short,12,left=true)}, "
+            "{pad(p1node|short,12,left=true)}, "
+            "{pad(fill(author|emailuser|lower,11)|firstline,11,left=true)}, "
+            "{pad(date|age|short,13,left=true)}, {line}\"}'"
+        )
+        command = (
+            f"hg {TRUST_CONFIG} annotate "
+            f"--template {tpl} {relpath}"
+        )
 
         result = await helpers.run_command_async(command, CWD)
         return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
@@ -291,7 +296,9 @@ async def get_revision_comments_by_id(revision_id: str, page: int = 1) -> dict:
                 username_mapping.get(comment_obj["authorPHID"], "Unknown")
             )
 
-        return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
+        return helpers.get_paginated_result(
+            json.dumps(result, indent=2), page, TOKEN_LIMIT
+        )
 
     except Exception as e:
         raise ToolError(str(e))
@@ -340,7 +347,9 @@ async def get_task_comments_by_id(task_id: str, page: int = 1) -> dict:
                 username_mapping.get(comment_obj["authorPHID"], "Unknown")
             )
 
-        return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
+        return helpers.get_paginated_result(
+            json.dumps(result, indent=2), page, TOKEN_LIMIT
+        )
 
     except Exception as e:
         raise ToolError(str(e))

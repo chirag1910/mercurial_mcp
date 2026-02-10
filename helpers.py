@@ -1,6 +1,12 @@
 import asyncio
 import re
 import json
+import os
+
+HG_REPO_ROOT = os.environ.get("HG_REPO_ROOT")
+HOST_REPO_ROOT = (
+    os.environ.get("HOST_REPO_ROOT") or os.environ.get("AUCTION_PROJECT_PATH")
+)
 
 async def run_command_async(command: str, cwd: str) -> str:
     """
