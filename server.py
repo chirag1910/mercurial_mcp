@@ -1,14 +1,17 @@
-from fastmcp import FastMCP
-from fastmcp.exceptions import ToolError
-from fastmcp.prompts.prompt import Message, PromptMessage, TextContent
 import asyncio
 import os
 import helpers
+import json
+from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.prompts.prompt import Message, PromptMessage, TextContent
 
 mcp = FastMCP("Mercurial MCP", mask_error_details=True)
 
 HG_REPO_ROOT = os.environ.get("HG_REPO_ROOT")
-TOKEN_LIMIT = int(os.environ.get("TOKEN_LIMIT", 4096)) # decrease in case client fails with unknown error
+# will be used to get relative paths
+HOST_REPO_ROOT = os.environ.get("HOST_REPO_ROOT") or os.environ.get("AUCTION_PROJECT_PATH")
+TOKEN_LIMIT = int(os.environ.get("TOKEN_LIMIT", 4096))
 
 if not HG_REPO_ROOT:
     raise ValueError("HG_REPO_ROOT environment variable is not set")
@@ -16,12 +19,38 @@ if not HG_REPO_ROOT:
 if not os.path.exists(HG_REPO_ROOT) or not os.path.isdir(HG_REPO_ROOT):
     raise ValueError("HG_REPO_ROOT does not exist or is not a directory")
 
-# get parent directory of HG_REPO_ROOT
-CWD = os.path.dirname(HG_REPO_ROOT)
+# CWD should be the repository root for mercurial commands
+CWD = HG_REPO_ROOT
+
+# Trust config for Mercurial to avoid ownership issues in Docker
+TRUST_CONFIG = "--config trust.users=root --config trust.groups=root"
+
+
+def get_relpath(file_path: str) -> str:
+    """
+    Translates absolute path (possibly from host) to repository-relative path.
+    """
+    if not file_path:
+        return None
+
+    # If starts with HOST_REPO_ROOT, translate to relative
+    if HOST_REPO_ROOT and file_path.startswith(HOST_REPO_ROOT):
+        rel = os.path.relpath(file_path, HOST_REPO_ROOT)
+        return rel
+
+    # If starts with HG_REPO_ROOT, translate to relative
+    if file_path.startswith(HG_REPO_ROOT):
+        rel = os.path.relpath(file_path, HG_REPO_ROOT)
+        return rel
+
+    # Otherwise assume it might already be relative or from some other root
+    return file_path
 
 
 @mcp.tool()
-async def get_file_at_commit(commit_hash: str, file_path: str, page: int = 1) -> dict:
+async def get_file_at_commit(
+    commit_hash: str, file_path: str, page: int = 1
+) -> dict:
     """
     Get the content of a file at a specific commit.
 
@@ -35,8 +64,8 @@ async def get_file_at_commit(commit_hash: str, file_path: str, page: int = 1) ->
         and meta information about the response/pagination.
     """
     try:
-        relpath = os.path.relpath(file_path, CWD)
-        command = f'hg cat {commit_hash} {relpath}'
+        relpath = get_relpath(file_path)
+        command = f'hg {TRUST_CONFIG} cat -r {commit_hash} "{relpath}"'
 
         result = await helpers.run_command_async(command, CWD)
         return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
@@ -74,7 +103,8 @@ async def blame_file(file_path: str, page: int = 1) -> dict:
 @mcp.tool()
 async def log_commits(file_path: str = None, page: int = 1) -> dict:
     """
-    Returns the log of commits. If file_path is provided, returns the log of commits for that file.
+    Returns the log of commits. If file_path is provided, returns the log
+    of commits for that file.
 
     Args:
         file_path: The absolute path of the file.
@@ -85,11 +115,11 @@ async def log_commits(file_path: str = None, page: int = 1) -> dict:
         meta information about the response/pagination.
     """
     try:
-        command = "hg log"
+        command = f"hg {TRUST_CONFIG} log"
 
         if file_path is not None:
-            relpath = os.path.relpath(file_path, CWD)
-            command += f" -f {relpath}"
+            relpath = get_relpath(file_path)
+            command += f' -f "{relpath}"'
 
         result = await helpers.run_command_async(command, CWD)
         return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
@@ -111,11 +141,15 @@ async def get_commit_summary(commit_hash: str, page: int = 1) -> dict:
         meta information about the response/pagination.
     """
     try:
-        desk_task_command = f"hg log -r {commit_hash} --template '{{desc}}'"
-        diff_task_command = f"hg diff -r {commit_hash}"
+        desk_task_command = f"hg {TRUST_CONFIG} log -r {commit_hash} --template '{{desc}}'"
+        diff_task_command = f"hg {TRUST_CONFIG} diff -c {commit_hash}"
 
-        desc_task = asyncio.create_task(helpers.run_command_async(desk_task_command, CWD))
-        diff_task = asyncio.create_task(helpers.run_command_async(diff_task_command, CWD))
+        desc_task = asyncio.create_task(
+            helpers.run_command_async(desk_task_command, CWD)
+        )
+        diff_task = asyncio.create_task(
+            helpers.run_command_async(diff_task_command, CWD)
+        )
 
         desc, diff = await asyncio.gather(desc_task, diff_task)
         result = f"""Description:\n{desc}\n\nDiff:\n{diff}"""
@@ -141,7 +175,7 @@ async def search_across_files(pattern: str, page: int = 1) -> dict:
         meta information about the response/pagination.
     """
     try:
-        command = f"hg grep --all '{pattern}'"
+        command = f"hg {TRUST_CONFIG} grep --all '{pattern}'"
 
         result = await helpers.run_command_async(command, CWD)
         return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
@@ -152,8 +186,7 @@ async def search_across_files(pattern: str, page: int = 1) -> dict:
 @mcp.tool()
 async def get_revision_summary_by_id(revision_id: str, page: int = 1) -> dict:
     """
-    Gets the summary of revision/differential. Revisions/differentials are the
-    code changes which aren't yet committed.
+    Gets the summary of revision/differential.
 
     Args:
         revision_id: The id of the revision; starts with 'D'
@@ -170,7 +203,10 @@ async def get_revision_summary_by_id(revision_id: str, page: int = 1) -> dict:
             raise ValueError("Revision id must start with 'D'")
 
         revision_id = revision_id.replace("D", "")
-        command = """echo '{"constraints": {"ids": [%s]}}' | arc call-conduit -- differential.revision.search""" % revision_id
+        command = (
+            'echo \'{"constraints": {"ids": [%s]}}\' | '
+            'arc call-conduit -- differential.revision.search'
+        ) % revision_id
 
         result = await helpers.run_command_async(command, CWD)
         return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
@@ -181,8 +217,7 @@ async def get_revision_summary_by_id(revision_id: str, page: int = 1) -> dict:
 @mcp.tool()
 async def get_revision_changes_by_id(revision_id: str, page: int = 1) -> dict:
     """
-    Gets the content of revision/differential. Revisions/differentials are the
-    code changes which aren't yet committed.
+    Gets the content of revision/differential.
 
     Args:
         revision_id: The id of the revision; starts with 'D'
@@ -207,9 +242,7 @@ async def get_revision_changes_by_id(revision_id: str, page: int = 1) -> dict:
 @mcp.tool()
 async def get_task_summary_by_id(task_id: str, page: int = 1) -> dict:
     """
-    Gets the summary of task/maniphest. Tasks/maniphest includes
-    the information of bugs, feature requests, etc. which are yet to
-    be resolved.
+    Gets the summary of task/maniphest.
 
     Args:
         task_id: The id of the task; starts with 'T'
@@ -225,10 +258,109 @@ async def get_task_summary_by_id(task_id: str, page: int = 1) -> dict:
             raise ValueError("Task id must start with 'T'")
 
         task_id = task_id.replace("T", "")
-        command = """echo '{"constraints": {"ids": [%s]}}' | arc call-conduit -- maniphest.search""" % task_id
+        command = (
+            'echo \'{"constraints": {"ids": [%s]}}\' | '
+            'arc call-conduit -- maniphest.search'
+        ) % task_id
 
         result = await helpers.run_command_async(command, CWD)
         return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
+    except Exception as e:
+        raise ToolError(str(e))
+
+
+@mcp.tool()
+async def get_revision_comments_by_id(revision_id: str, page: int = 1) -> dict:
+    """
+    Gets all comments/discussion on a revision/differential.
+
+    Args:
+        revision_id: The id of the revision; starts with 'D'
+        page: The page number of the comments.
+    """
+    try:
+        if not revision_id.startswith("D"):
+            raise ValueError("Revision id must start with 'D'")
+
+        numeric_id = revision_id.replace("D", "")
+
+        command = (
+            'echo \'{"ids": [%s]}\' | '
+            'arc call-conduit -- differential.getrevisioncomments'
+        ) % numeric_id
+
+        result_temp = await helpers.run_command_async(command, CWD)
+        result_temp = json.loads(result_temp)
+
+        phids = []
+        result = []
+        for comment_obj in result_temp:
+            if comment_obj['content'] is None:
+                continue
+
+            phids.append(comment_obj["authorPHID"])
+            result.append({
+                "dateCreated": comment_obj["dateCreated"],
+                "authorPHID": comment_obj["authorPHID"],
+                "content": comment_obj["content"]
+            })
+
+        username_mapping = await helpers.resolve_usernames(phids, CWD)
+        for comment_obj in result:
+            comment_obj["authorPHID"] = (
+                username_mapping.get(comment_obj["authorPHID"], "Unknown")
+            )
+
+        return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
+
+    except Exception as e:
+        raise ToolError(str(e))
+
+
+@mcp.tool()
+async def get_task_comments_by_id(task_id: str, page: int = 1) -> dict:
+    """
+    Gets all comments/discussion on a task/maniphest.
+
+    Args:
+        task_id: The id of the task; starts with 'T'
+        page: The page number of the comments.
+    """
+    try:
+        if not task_id.startswith("T"):
+            raise ValueError("Task id must start with 'T'")
+
+        numeric_id = task_id.replace("T", "")
+
+        command = (
+            'echo \'{"ids": [%s]}\' | '
+            'arc call-conduit -- maniphest.gettasktransactions'
+        ) % numeric_id
+
+        result_temp = await helpers.run_command_async(command, CWD)
+        result_temp = json.loads(result_temp)
+
+        phids = []
+        result = []
+        for comment_obj in result_temp:
+            if comment_obj["transactionType"] != "core:comment":
+                continue
+
+            phids.append(comment_obj["authorPHID"])
+            result.append({
+                "dateCreated": comment_obj["dateCreated"],
+                "authorPHID": comment_obj["authorPHID"],
+                "comments": comment_obj["comments"]
+            })
+
+        username_mapping = await helpers.resolve_usernames(phids, CWD)
+        for comment_obj in result:
+            comment_obj["authorPHID"] = (
+                username_mapping.get(comment_obj["authorPHID"], "Unknown")
+            )
+
+        return helpers.get_paginated_result(result, page, TOKEN_LIMIT)
+
     except Exception as e:
         raise ToolError(str(e))
 
@@ -256,7 +388,9 @@ def review_revision(revision_id: str) -> str:
     - Migrations (are Online Schema Changes needed)
     """
 
-    return PromptMessage(role="assistant", content=TextContent(type="text", text=prompt))
+    return PromptMessage(
+        role="assistant", content=TextContent(type="text", text=prompt)
+    )
 
 
 if __name__ == "__main__":

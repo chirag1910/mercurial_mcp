@@ -1,5 +1,6 @@
 import asyncio
 import re
+import json
 
 async def run_command_async(command: str, cwd: str) -> str:
     """
@@ -108,3 +109,33 @@ def get_paginated_result(result: str, page: int, page_length: int):
         "total_chars": len(target_page_content),
         "has_more": has_more
     }
+
+async def resolve_usernames(phids: list[str], cwd: str) -> dict[str, str]:
+    """
+    Resolves a list of PHIDs to usernames.
+
+    Args:
+        phids: List of PHIDs to resolve
+
+    Returns:
+        Dictionary mapping PHIDs to usernames
+    """
+    if not phids:
+        return {}
+
+    phids_json = ",".join([f'"{p}"' for p in set(phids)])
+
+    command = f"""
+    echo '{{"constraints": {{"phids": [{phids_json}]}}}}' \
+    | arc call-conduit -- user.search
+    """
+
+    raw = await run_command_async(command, cwd)
+
+    data = json.loads(raw)
+    mapping = {}
+
+    for user in data.get("response", {}).get("data", []):
+        mapping[user["phid"]] = user["fields"]["username"]
+
+    return mapping
