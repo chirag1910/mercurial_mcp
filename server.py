@@ -26,27 +26,6 @@ CWD = HG_REPO_ROOT
 TRUST_CONFIG = "--config trust.users=root --config trust.groups=root"
 
 
-def get_relpath(file_path: str) -> str:
-    """
-    Translates absolute path (possibly from host) to repository-relative path.
-    """
-    if not file_path:
-        return None
-
-    # If starts with HOST_REPO_ROOT, translate to relative
-    if HOST_REPO_ROOT and file_path.startswith(HOST_REPO_ROOT):
-        rel = os.path.relpath(file_path, HOST_REPO_ROOT)
-        return rel
-
-    # If starts with HG_REPO_ROOT, translate to relative
-    if file_path.startswith(HG_REPO_ROOT):
-        rel = os.path.relpath(file_path, HG_REPO_ROOT)
-        return rel
-
-    # Otherwise assume it might already be relative or from some other root
-    return file_path
-
-
 @mcp.tool()
 async def get_file_at_commit(
     commit_hash: str, file_path: str, page: int = 1
@@ -64,7 +43,7 @@ async def get_file_at_commit(
         and meta information about the response/pagination.
     """
     try:
-        relpath = get_relpath(file_path)
+        relpath = helpers.get_relpath(file_path)
         command = f'hg {TRUST_CONFIG} cat -r {commit_hash} "{relpath}"'
 
         result = await helpers.run_command_async(command, CWD)
@@ -89,7 +68,7 @@ async def blame_file(file_path: str, page: int = 1) -> dict:
         <commit_hash>, <parent_commit_hash>, <author>, <date|age>, <line_content>
     """
     try:
-        relpath = os.path.relpath(file_path, CWD)
+        relpath = helpers.get_relpath(file_path)
         command = "hg annotate --template '{lines % \"{pad(node|short,12,left=true)}, {pad(p1node|short,12,left=true)}, {pad(fill(author|emailuser|lower,11)|firstline,11,left=true)}, {pad(date|age|short,13,left=true)}, {line}\"}'"
 
         command += f" {relpath}"
@@ -118,7 +97,7 @@ async def log_commits(file_path: str = None, page: int = 1) -> dict:
         command = f"hg {TRUST_CONFIG} log"
 
         if file_path is not None:
-            relpath = get_relpath(file_path)
+            relpath = helpers.get_relpath(file_path)
             command += f' -f "{relpath}"'
 
         result = await helpers.run_command_async(command, CWD)
@@ -290,12 +269,13 @@ async def get_revision_comments_by_id(revision_id: str, page: int = 1) -> dict:
         ) % numeric_id
 
         result_temp = await helpers.run_command_async(command, CWD)
-        result_temp = json.loads(result_temp)
+        data = json.loads(result_temp)
+        comments = data.get("response", {}).get(numeric_id, [])
 
         phids = []
         result = []
-        for comment_obj in result_temp:
-            if comment_obj['content'] is None:
+        for comment_obj in comments:
+            if comment_obj.get('content') is None:
                 continue
 
             phids.append(comment_obj["authorPHID"])
@@ -338,12 +318,13 @@ async def get_task_comments_by_id(task_id: str, page: int = 1) -> dict:
         ) % numeric_id
 
         result_temp = await helpers.run_command_async(command, CWD)
-        result_temp = json.loads(result_temp)
+        data = json.loads(result_temp)
+        transactions = data.get("response", {}).get(numeric_id, [])
 
         phids = []
         result = []
-        for comment_obj in result_temp:
-            if comment_obj["transactionType"] != "core:comment":
+        for comment_obj in transactions:
+            if comment_obj.get("transactionType") != "core:comment":
                 continue
 
             phids.append(comment_obj["authorPHID"])

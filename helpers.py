@@ -139,3 +139,23 @@ async def resolve_usernames(phids: list[str], cwd: str) -> dict[str, str]:
         mapping[user["phid"]] = user["fields"]["username"]
 
     return mapping
+
+def get_relpath(file_path: str) -> str:
+    """
+    Translates absolute path (possibly from host) to repository-relative path.
+    """
+    if not file_path:
+        return None
+
+    # If starts with HOST_REPO_ROOT, translate to relative
+    if HOST_REPO_ROOT and file_path.startswith(HOST_REPO_ROOT):
+        rel = os.path.relpath(file_path, HOST_REPO_ROOT)
+        return rel
+
+    # If starts with HG_REPO_ROOT, translate to relative
+    if file_path.startswith(HG_REPO_ROOT):
+        rel = os.path.relpath(file_path, HG_REPO_ROOT)
+        return rel
+
+    # Otherwise assume it might already be relative or from some other root
+    return file_path

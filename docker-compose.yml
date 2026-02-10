@@ -12,9 +12,6 @@ services:
       
       # Mount Arcanist
       - ${ARCANIST_PROJECT_PATH}:/app/arcanist
-      
-    environment:
-      - HOST_REPO_ROOT=${AUCTION_PROJECT_PATH}
 
     env_file:
       - .env
