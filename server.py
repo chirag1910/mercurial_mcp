@@ -143,7 +143,7 @@ async def get_commit_summary(commit_hash: str, page: int = 1) -> dict:
         raise ToolError(str(e))
 
 
-@mcp.tool()
+# @mcp.tool()
 async def search_across_files(pattern: str, page: int = 1) -> dict:
     """
     Searches for a pattern across all files in the repository. However,
@@ -356,31 +356,29 @@ async def get_task_comments_by_id(task_id: str, page: int = 1) -> dict:
 
 
 @mcp.prompt()
-def review_revision(revision_id: str) -> str:
+def review_revision(revision_id: str):
     """
     Review the given revision/differential.
+    
+    Args:
+        revision_id: The ID of the revision to review (e.g., D123)
     """
+    prompt_text = f"""You are a senior software engineer. Your task is to review {revision_id} revision/differential.
+Get and analyze the summary and changes of the revision/differential. Check if the changes are
+appropriate and make sense. If not, suggest changes. In case revision/differential is
+associated with a task/maniphest, get and analyze the summary/comments of the task/maniphest and check
+if the changes are relevant/aligned with the task.
 
-    prompt = """
-    You are a senior software engineer. Your task is to review {revision_id} revision/differential.
-    Get and analyze the summary and changes of the revision/differential. Check if the changes are
-    appropriate and make sense. If not, suggest changes. In case revision/differential is
-    associated with a task/maniphest, get and analyze the summary of the task/maniphest and check
-    if the changes are relevant/aligned with the task.
+Furthermore, review the changes against following parameters:
+- Syntax (as per Code Formatting)
+- Naming (of variables, methods, file names)
+- Comments (as per Documentation)
+- Code reuse (including refactoring opportunities)
+- Performance (of code and queries)
+- Security (is proper authorization added)
+- Migrations (are Online Schema Changes needed)"""
 
-    Furthermore, review the changes against following parameters:
-    - Syntax (as per Code Formatting)
-    - Naming (of variables, methods, file names)
-    - Comments (as per Documentation)
-    - Code reuse (including refactoring opportunities)
-    - Performance (of code and queries)
-    - Security (is proper authorization added)
-    - Migrations (are Online Schema Changes needed)
-    """
-
-    return PromptMessage(
-        role="assistant", content=TextContent(type="text", text=prompt)
-    )
+    return [PromptMessage(role="user", content=TextContent(type="text", text=prompt_text))]
 
 
 if __name__ == "__main__":
